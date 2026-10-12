@@ -4,7 +4,7 @@ This recipe covers the **clean 500-question accuracy evaluation** and a separate
 
 Prefix caching is enabled for all three AIPerf arms. AIPerf 0.13.0 uses `--cache-bust first_turn_prefix` to place a unique `[rid:...]` marker before each replayed user question. The Switchyard encoder ignores that marker, but the original tagged request reaches Dynamo/vLLM. The shared system prefix can be cached; repeated complete questions cannot. `validate-point.py` requires all 500 questions to appear, unique markers, and no more than 32 cached prompt tokens per observed response.
 
-The [frozen inputs](../benchmark/inputs/SOURCE.md) and [original selected-point evidence](../benchmark/evidence/README.md) are included. The model weights, EKS cluster, and full intermediate-rate raw exports are not. The original 40% cost estimate combines a capable-only run on October 9 with a Switchyard run on October 11; it is **not** a simultaneous or repeated production-cost measurement.
+The [frozen inputs](../benchmark/inputs/SOURCE.md) and [original selected-point evidence](../benchmark/evidence/README.md) are included. The model weights, EKS cluster, and full intermediate-rate raw exports are not. The 40% estimated G7e cost reduction compares separate 31B-only and Switchyard benchmark runs using the same cache-busted workload, with request IDs hidden only from Switchyard’s router encoder; it is **not** a simultaneous or repeated production-cost measurement.
 
 ## 1. Prerequisites and inputs
 
