@@ -7,7 +7,7 @@ This repository is a serving reference for the shopping demo. Switchyard's train
 | One GPU | `efficient` | Gemma 4 E4B worker + Switchyard prefill router |
 | Other GPU | `capable` | Gemma 4 31B worker + Switchyard prefill router |
 
-The manifests allocate one GPU to each worker but do not pin numeric GPU IDs. The two router replicas share the same frozen checkpoint, targets, tolerance, and request settings. The Service distributes connections across healthy replicas. It does not guarantee an exact 50/50 request split for every client.
+The manifests allocate one GPU to each worker but do not pin numeric GPU IDs. The two router replicas share the same frozen checkpoint, targets, tolerance, and request settings. 
 
 ## Reproduce the serving setup
 
