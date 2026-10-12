@@ -22,7 +22,9 @@ cargo build --release --locked -p switchyard-server --features prefill-router
 
 ## Serving settings
 
-`manifests/router/start-colocated.sh` enables batches of up to 16 requests with a 2 ms collection window. Queueing and inference take additional time.
+The two colocated router launchers enable batches of up to 16 requests with a 2 ms collection window. Queueing and inference take additional time.
+
+For the opt-in AIPerf cache-bust study, set `SWITCHYARD_STRIP_AIPERF_RID_FOR_ROUTING=1` on both router workers. Only an exact leading `[rid:<12 hex>]\n\n` marker is removed from the encoder input; the original request and its tag are forwarded to Dynamo unchanged. This is off in the default manifests. The Rust test overlay checks the exact-match behavior.
 
 Requests near the routing threshold are rescored individually to reduce batch-rounding differences. This safeguard is not a universal numerical guarantee: recheck prediction parity after changing the checkpoint, runtime, or batching settings.
 

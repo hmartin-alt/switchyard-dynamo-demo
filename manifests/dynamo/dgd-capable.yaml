@@ -73,6 +73,8 @@ spec:
             value: /hf-cache/hub
           - name: SWITCHYARD_PREFIX_CACHE_MODE
             value: disabled
+          - name: SWITCHYARD_STRIP_AIPERF_RID_FOR_ROUTING
+            value: "0"
           volumeMounts:
           - name: hf-cache
             mountPath: /hf-cache

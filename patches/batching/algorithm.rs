@@ -22,6 +22,22 @@ const ALGORITHM_NAME: &str = "prefill_router";
 #[path = "microbatch.rs"]
 mod microbatch;
 
+/// Remove only AIPerf's exact first_turn_prefix marker from the encoder input.
+/// The Request passed to the selected Dynamo target is never changed.
+pub(crate) fn prefill_prompt_without_aiperf_rid(prompt: &str) -> &str {
+    let Some(rest) = prompt.strip_prefix("[rid:") else {
+        return prompt;
+    };
+    let Some((rid, question)) = rest.split_once("]\n\n") else {
+        return prompt;
+    };
+    if rid.len() == 12 && rid.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        question
+    } else {
+        prompt
+    }
+}
+
 /// Configuration for a libsy prefill-router algorithm.
 #[derive(Clone, Debug)]
 pub struct PrefillRouterConfig {
@@ -195,6 +211,15 @@ impl Algorithm for PrefillRouterAlgo {
             .find(|text| !text.trim().is_empty())
         {
             Some(prompt) => {
+                // Opt-in benchmark view: classification sees the clean question,
+                // while the original tagged Request continues to Dynamo.
+                let prompt = if std::env::var("SWITCHYARD_STRIP_AIPERF_RID_FOR_ROUTING")
+                    .as_deref() == Ok("1")
+                {
+                    prefill_prompt_without_aiperf_rid(&prompt).to_owned()
+                } else {
+                    prompt
+                };
                 let predictions = if let Some(batcher) = &self.microbatch {
                     batcher
                         .predict(prompt)

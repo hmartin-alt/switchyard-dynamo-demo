@@ -69,6 +69,8 @@ The Service distributes TCP connections, not guaranteed individual requests. Cli
 
 The manifests set `SWITCHYARD_PREFIX_CACHE_MODE=disabled` on **both** workers, which passes `--no-enable-prefix-caching` to each `dynamo.vllm` process. This was the conservative full-prefill comparison mode.
 
+For the newer AIPerf cache-bust comparison, use `SWITCHYARD_PREFIX_CACHE_MODE=enabled` on **both** workers. This passes ordinary `--enable-prefix-caching` without the experimental patch. Also set `SWITCHYARD_STRIP_AIPERF_RID_FOR_ROUTING=1` on both workers so an AIPerf request ID is removed only from the encoder's input. The original tagged request still reaches Dynamo. These are opt-in benchmark settings; see the [exact recipe](aiperf-cache-bust.md).
+
 For a controlled reproduction of the later shared-prefix-only study, first stage [the experimental vLLM patch](../manifests/router/experimental/prefix-only-vllm-patch.py) as `/opt/switchyard-colocated/experimental/prefix-only-vllm-patch.py`:
 
 ```bash

@@ -10,6 +10,7 @@ export SWITCHYARD_PREFILL_TOLERANCE=0.1760250329971314
 
 case "${SWITCHYARD_PREFIX_CACHE_MODE:-disabled}" in
   disabled) cache_flag=--no-enable-prefix-caching ;;
+  enabled) cache_flag=--enable-prefix-caching ;;
   shared-prefix-only)
     python3 /router-runtime/experimental/prefix-only-vllm-patch.py
     cache_flag=--enable-prefix-caching ;;

@@ -11,6 +11,28 @@ use switchyard_protocol::{
 
 use crate::{PrefillForward, PrefillRouterAlgo, Result};
 
+#[test]
+fn strips_only_exact_aiperf_first_turn_prefix() {
+    use crate::algorithm::prefill_prompt_without_aiperf_rid;
+
+    assert_eq!(
+        prefill_prompt_without_aiperf_rid("[rid:a3f9b2c1d4e5]\n\nWhich item?"),
+        "Which item?"
+    );
+    assert_eq!(
+        prefill_prompt_without_aiperf_rid("[rid:A3F9B2C1D4E5]\n\nWhich item?"),
+        "Which item?"
+    );
+    for original in [
+        "Which item?",
+        "[rid:short]\n\nWhich item?",
+        "[rid:a3f9b2c1d4e5] Which item?",
+        "Question mentions [rid:a3f9b2c1d4e5]\n\n",
+    ] {
+        assert_eq!(prefill_prompt_without_aiperf_rid(original), original);
+    }
+}
+
 struct RecordingForward {
     calls: Arc<AtomicUsize>,
     prompts: Arc<std::sync::Mutex<Vec<String>>>,

@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: aiperf-loadgen
+  namespace: dynamo
+spec:
+  nodeSelector:
+    workload: aiperf
+  tolerations:
+  - key: benchmark
+    operator: Equal
+    value: aiperf
+    effect: NoSchedule
+  containers:
+  - name: main
+    image: python:3.12-slim
+    command: [bash, -c]
+    args: ["pip install --no-cache-dir aiperf==0.13.0 openai && touch /work/installed && sleep infinity"]
+    resources:
+      requests:
+        cpu: "6"
+        memory: 8Gi
+      limits:
+        cpu: "7"
+        memory: 12Gi
+    volumeMounts:
+    - name: work
+      mountPath: /work
+  volumes:
+  - name: work
+    emptyDir: {}
