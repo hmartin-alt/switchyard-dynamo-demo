@@ -18,8 +18,6 @@ The manifests allocate one GPU to each worker but do not pin numeric GPU IDs. Th
 
 The default manifests disable vLLM prefix caching. For the opt-in cache-busted AIPerf comparison, follow the [benchmark recipe](docs/aiperf-cache-bust.md): enable ordinary prefix caching and hide each synthetic request ID from the router encoder only.
 
-The checkpoint, model weights, credentials, source checkouts, and Kubernetes cluster are **not** committed. This is a reproducible serving recipe, not a turnkey cluster. `patches/` and `scripts/shopping-mmlu/` preserve the Switchyard runtime changes and offline policy workflow; `scripts/aiperf/` contains the benchmark runner and checks. The held-out dataset and benchmark artifacts are not committed.
-
 ## Scope of the measured results
 
 Switchyard scored **93.6%** on 500 clean held-out questions versus **95.2%** for 31B-only. A *separate* AIPerf capacity test with first-turn request IDs sent unchanged to Dynamo found **159.63** versus **95.56** SLO-compliant requests/s on the same full G7e size. This implies about **40% lower estimated G7e instance cost per compliant request**. The router alone ignored the synthetic ID during prediction. These are separate quality and performance measurements, not a single production-cost or tagged-prompt accuracy result; the tagged prompts changed five net answers in the diagnostic accuracy run. See the [benchmark recipe](docs/aiperf-cache-bust.md) for controls and limits.
