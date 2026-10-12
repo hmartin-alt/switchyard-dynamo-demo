@@ -52,13 +52,13 @@ Both launchers must be executable. Before deployment, verify the checkpoint is t
 
 ## 2. Deploy and check
 
+Run this from a local shell whose `kubectl` context matches the context you pass to the script:
+
 ```bash
-kubectl apply -f manifests/dynamo/dgd-efficient-colocated.yaml
-kubectl apply -f manifests/dynamo/dgd-capable.yaml
-kubectl apply -f manifests/router/colocated-service.yaml
-kubectl -n dynamo get dgd efficient capable
-kubectl -n dynamo get pods -l app=switchyard-production-rr -o wide
-kubectl -n dynamo get endpointslices -l kubernetes.io/service-name=switchyard-production-rr
+bash scripts/deploy-eks.sh YOUR_KUBE_CONTEXT
+kubectl --context YOUR_KUBE_CONTEXT -n dynamo get dgd efficient capable
+kubectl --context YOUR_KUBE_CONTEXT -n dynamo get pods -l app=switchyard-production-rr -o wide
+kubectl --context YOUR_KUBE_CONTEXT -n dynamo get endpointslices -l kubernetes.io/service-name=switchyard-production-rr
 ```
 
 Expect **two ready worker Pods**, one labeled `switchyard-replica=efficient` and one `switchyard-replica=capable`, and two ready Service endpoints on the same prepared node. The worker readiness probe requires both local Dynamo/vLLM and the local router to respond. Inspect each worker's logs if it is not ready. You can port-forward `svc/switchyard-production-rr` on port 4000 and send a chat completion to `/v1/chat/completions` using the served route name `shopping`; use the fixed request settings required by your application. Check each replica's routing log separately if you need to confirm traffic reaches both.
@@ -69,16 +69,7 @@ The Service distributes TCP connections, not guaranteed individual requests. Cli
 
 The manifests set `SWITCHYARD_PREFIX_CACHE_MODE=disabled` on **both** workers, which passes `--no-enable-prefix-caching` to each `dynamo.vllm` process. This was the conservative full-prefill comparison mode.
 
-For the newer AIPerf cache-bust comparison, use `SWITCHYARD_PREFIX_CACHE_MODE=enabled` on **both** workers. This passes ordinary `--enable-prefix-caching` without the experimental patch. Also set `SWITCHYARD_STRIP_AIPERF_RID_FOR_ROUTING=1` on both workers so an AIPerf request ID is removed only from the encoder's input. The original tagged request still reaches Dynamo. These are opt-in benchmark settings; see the [exact recipe](aiperf-cache-bust.md).
-
-For a controlled reproduction of the later shared-prefix-only study, first stage [the experimental vLLM patch](../manifests/router/experimental/prefix-only-vllm-patch.py) as `/opt/switchyard-colocated/experimental/prefix-only-vllm-patch.py`:
-
-```bash
-kubectl -n dynamo exec switchyard-colocated-builder -- mkdir -p /runtime/experimental
-kubectl -n dynamo cp manifests/router/experimental/prefix-only-vllm-patch.py switchyard-colocated-builder:/runtime/experimental/prefix-only-vllm-patch.py
-```
-
-Then change `SWITCHYARD_PREFIX_CACHE_MODE` to `shared-prefix-only` in **both** DGD manifests before deploying. The patch allows reuse of at most the first 32 prompt tokens and refuses to run if the installed vLLM source does not match its expected version. This was an experimental benchmark policy to avoid complete-cache hits from repeated questions; it is **not** ordinary production prefix caching. Test and review it separately before considering it for another deployment.
+For the AIPerf cache-bust comparison, use `SWITCHYARD_PREFIX_CACHE_MODE=enabled` on **both** workers. This passes ordinary `--enable-prefix-caching`. Also set `SWITCHYARD_STRIP_AIPERF_RID_FOR_ROUTING=1` on both workers so an AIPerf request ID is removed only from the encoder's input. The original tagged request still reaches Dynamo. These are opt-in benchmark settings; see the [exact recipe](aiperf-cache-bust.md).
 
 ## Policy and dataset provenance
 
@@ -86,7 +77,7 @@ The shopping policy was tuned on 3,500 training questions and 500 validation que
 
 The token-price inputs in `configs/prefill-router/shopping-costs-token-proxy.json` served the original **routing policy selection**. They are not the infrastructure-cost calculation. The measured G7e cost comparison uses the same complete instance for each configuration and divides its hourly rate by measured SLO-compliant goodput. It excludes the CPU load-generator, EKS control plane, storage, network, and operational overhead. Do not present it as an AWS bill or production saving.
 
-Run offline checks without a cluster:
+Run offline checks without a cluster, with NumPy installed in the test environment:
 
 ```bash
 python3 -m unittest discover -s tests -v

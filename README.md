@@ -7,13 +7,18 @@ This repository is a serving reference for the shopping demo. Switchyard's train
 | One GPU | `efficient` | Gemma 4 E4B worker + Switchyard prefill router |
 | Other GPU | `capable` | Gemma 4 31B worker + Switchyard prefill router |
 
-The manifests allocate one GPU to each worker but do not pin numeric GPU IDs. The two router replicas share the same frozen checkpoint, targets, tolerance, and request settings. 
+The manifests allocate one GPU to each worker but do not pin numeric GPU IDs. The two router replicas share the same frozen checkpoint, targets, tolerance, and request settings.
 
-## Reproduce the serving setup
+## Deploy on EKS
 
-Start with the [deployment guide](docs/shopping-demo.md). It covers model access, pinned model snapshots, building the patched Switchyard runtime, staging the trained checkpoint, applying both DGDs and the Service, and checking both router replicas. The default manifests disable vLLM prefix caching. An **opt-in, version-guarded experimental shared-prefix-only cache policy** is retained for the earlier controlled cache study; it is not a general production recommendation. The [AIPerf cache-bust recipe](docs/aiperf-cache-bust.md) reproduces the newer benchmark with ordinary vLLM prefix caching and request IDs hidden only from the router encoder.
+1. Prepare one `g7e.12xlarge` node labeled `workload=model-serving`, a `dynamo` namespace with the Dynamo operator, and the Hugging Face token Secret. Confirm your `kubectl` context points to that cluster.
+2. Prefetch the pinned model snapshots and build the patched Switchyard runtime using the commands in the [deployment guide](docs/shopping-demo.md). Stage the frozen router checkpoint, routes, and both launchers on the same node. Verify the checkpoint hash before deployment.
+3. Apply the two DGDs and shared router Service with `bash scripts/deploy-eks.sh YOUR_KUBE_CONTEXT`. The script refuses to deploy unless exactly one node has the serving label.
+4. Check that both worker Pods and both Service endpoints are ready. The [deployment guide](docs/shopping-demo.md) gives the exact checks and a test-request path.
 
-The checkpoint, model weights, credentials, source checkouts, and Kubernetes cluster are **not** committed. The repo therefore provides serving code and a deployment recipe, not a turnkey cluster. Training/tuning helpers under `scripts/shopping-mmlu/` document how the routing policy was produced. AIPerf runner and validation scripts are included; the held-out dataset and benchmark artifacts are not.
+The default manifests disable vLLM prefix caching. For the opt-in cache-busted AIPerf comparison, follow the [benchmark recipe](docs/aiperf-cache-bust.md): enable ordinary prefix caching and hide each synthetic request ID from the router encoder only.
+
+The checkpoint, model weights, credentials, source checkouts, and Kubernetes cluster are **not** committed. This is a reproducible serving recipe, not a turnkey cluster. `patches/` and `scripts/shopping-mmlu/` preserve the Switchyard runtime changes and offline policy workflow; `scripts/aiperf/` contains the benchmark runner and checks. The held-out dataset and benchmark artifacts are not committed.
 
 ## Scope of the measured results
 

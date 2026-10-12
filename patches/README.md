@@ -18,4 +18,4 @@ The Switchyard integration patch targets commit `a601a9a3f9db149a1ad430fa43b1463
 
 The script expects prepared source trees; it does not download them. Use a fresh toolkit copy when applying its patches. The serving Python environment must include the model-router toolkit and its dependencies. The source and checkpoint are not distributed by this repository.
 
-See the [deployment guide](../docs/shopping-demo.md#deployment-files) for the runtime mounts and launcher.
+See the [deployment guide](../docs/shopping-demo.md) for the runtime mounts and launcher.
