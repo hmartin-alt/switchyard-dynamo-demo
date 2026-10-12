@@ -16,7 +16,9 @@ The manifests allocate one GPU to each worker but do not pin numeric GPU IDs. Th
 3. Apply the two DGDs and shared router Service with `bash scripts/deploy-eks.sh YOUR_KUBE_CONTEXT`. The script refuses to deploy unless exactly one node has the serving label.
 4. Check that both worker Pods and both Service endpoints are ready. The [deployment guide](docs/shopping-demo.md) gives the exact checks and a test-request path.
 
-The default manifests disable vLLM prefix caching. For the opt-in cache-busted AIPerf comparison, follow the [benchmark recipe](docs/aiperf-cache-bust.md): enable ordinary prefix caching and hide each synthetic request ID from the router encoder only.
+The default manifests disable vLLM prefix caching. The [benchmark recipe](docs/aiperf-cache-bust.md) includes the frozen 500-question split, router checkpoint and policy, clean-accuracy command, two-worker E4B and 31B baseline DGDs, cache-busted Switchyard overlay, AIPerf rate schedule, validation/cost calculation, and original selected-point evidence.
+
+The repo can rerun the three-arm benchmark on a prepared EKS cluster and audit the quoted selected points offline. It uses the **already-trained, frozen router checkpoint**; reproducing the benchmark does not require training a new router. The original training labels and intermediate features are not included, so the repo cannot reproduce *this checkpoint's* training from scratch. It is also **not** a turnkey cluster: gated model weights, credentials, infrastructure provisioning, the original clean-accuracy output, and intermediate-rate raw exports are not committed. `patches/` contains the Switchyard runtime changes; `scripts/shopping-mmlu/` documents parts of the offline policy workflow. To train a new prefill router on your own labeled data, see the [NVIDIA model-router toolkit training guide](https://github.com/NVIDIA-AI-Blueprints/llm-router/blob/v3/docs/guide-training-and-evaluation.md); the [Switchyard prefill-router reference](https://nvidia-nemo.github.io/Switchyard/reference/toml_schema/#prefill_router) covers checkpoint configuration, not end-to-end training.
 
 ## Scope of the measured results
 

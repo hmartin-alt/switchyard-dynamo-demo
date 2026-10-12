@@ -1,0 +1,12 @@
+{
+  "version": "shopping-mmlu-published-evidence-v1",
+  "test_sha256": "07882e772a3aa492e97747aa88a83a61ca5975810842e88539ee9b07e2427c64",
+  "checkpoint_sha256": "5c3e0704368f248a469d6762252bb3a1257bfd7016c885417de1707488247bdf",
+  "g7e_hourly_usd_for_frozen_comparison": 14.40172,
+  "rates": {
+    "e4b_only": [768],
+    "capable_only": [96, 112],
+    "switchyard": [160, 192]
+  },
+  "notes": "Minimal original exports included to audit the quoted selected points and the next tested failures. This is not the full rate sweep. The Switchyard and model-only exports were collected on separate dates."
+}

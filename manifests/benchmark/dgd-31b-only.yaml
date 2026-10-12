@@ -1,0 +1,78 @@
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeployment
+metadata:
+  name: capable
+  namespace: dynamo
+spec:
+  components:
+  - name: Frontend
+    type: frontend
+    replicas: 1
+    podTemplate:
+      spec:
+        containers:
+        - name: main
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.0
+          envFrom:
+          - secretRef:
+              name: hf-token-secret
+  - name: VllmDecodeWorker
+    type: worker
+    replicas: 2
+    podTemplate:
+      metadata:
+        labels:
+          benchmark-role: capable-only
+      spec:
+        nodeSelector:
+          workload: model-serving
+        volumes:
+        - name: hf-cache
+          hostPath:
+            path: /opt/hf-cache
+            type: DirectoryOrCreate
+        containers:
+        - name: main
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.0
+          securityContext:
+            runAsUser: 0
+          command:
+          - python3
+          - -m
+          - dynamo.vllm
+          args:
+          - --model
+          - /hf-cache/hub/models--google--gemma-4-31B-it/snapshots/842da3794eaa0b77d5f08bae87a17459d91ff475
+          - --served-model-name
+          - capable
+          - --max-model-len
+          - "8192"
+          - --gpu-memory-utilization
+          - "0.90"
+          - --enable-prefix-caching
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: system
+            timeoutSeconds: 10
+            periodSeconds: 30
+            failureThreshold: 10
+          ports:
+          - containerPort: 9090
+            name: system
+          - containerPort: 19090
+            name: nixl
+          envFrom:
+          - secretRef:
+              name: hf-token-secret
+          env:
+          - name: HF_HOME
+            value: /hf-cache
+          - name: HF_HUB_CACHE
+            value: /hf-cache/hub
+          volumeMounts:
+          - name: hf-cache
+            mountPath: /hf-cache
+          resources:
+            limits:
+              nvidia.com/gpu: "1"

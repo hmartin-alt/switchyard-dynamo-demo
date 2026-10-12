@@ -1,55 +1,123 @@
-# Reproduce the cache-busted AIPerf comparison
+# Reproduce the Shopping MMLU comparison
 
-This is an **opt-in benchmark mode**, not the default serving configuration. AIPerf adds a unique `[rid:<12 hex>]` marker at the start of each replayed user message. Switchyard removes that marker **only from the copy of the question scored by the prefill encoder**. The unchanged tagged request goes to the selected Dynamo Graph Deployment (DGD). Ordinary vLLM prefix caching stays enabled, so the shared system prefix can be reused but complete repeated questions cannot. The original request object is not edited.
+This recipe covers the **clean 500-question accuracy evaluation** and a separate **three-arm AIPerf capacity comparison**. It does not retrain the router. The committed [protocol](../benchmark/protocol.json) freezes the dataset/checkpoint hashes, offered-rate schedule, 60-second warmup, 300-second measurement, one-second latency cutoff, and 95% required attainment. Run each arm on the **same complete two-GPU `g7e.12xlarge`**, one arm at a time, with a dedicated `c7i.2xlarge` CPU load generator. Model-only arms use two workers of the same model; Switchyard uses one worker of each model plus one colocated router encoder per GPU.
 
-The comparison uses three complete, separate `g7e.12xlarge` configurations in turn: two E4B workers, two 31B workers, or one E4B plus one 31B with two colocated router encoders. The same 500 held-out Shopping MMLU questions, system prompt, checkpoint, tolerance, decoding, and instance size are used. Accuracy is evaluated separately on **clean** questions; do not treat tagged AIPerf responses as the clean accuracy measurement.
+Prefix caching is enabled for all three AIPerf arms. AIPerf 0.13.0 uses `--cache-bust first_turn_prefix` to place a unique `[rid:...]` marker before each replayed user question. The Switchyard encoder ignores that marker, but the original tagged request reaches Dynamo/vLLM. The shared system prefix can be cached; repeated complete questions cannot. `validate-point.py` requires all 500 questions to appear, unique markers, and no more than 32 cached prompt tokens per observed response.
 
-## 1. Prepare the exact inputs
+The [frozen inputs](../benchmark/inputs/SOURCE.md) and [original selected-point evidence](../benchmark/evidence/README.md) are included. The model weights, EKS cluster, and full intermediate-rate raw exports are not. The original 40% cost estimate combines a capable-only run on October 9 with a Switchyard run on October 11; it is **not** a simultaneous or repeated production-cost measurement.
 
-The held-out data and checkpoint are not committed. Obtain the frozen `test.jsonl` and `prefill_router.pt` through your approved channel. Verify their SHA-256 values against the frozen policy file before deploying. The demo checkpoint hash is in the [deployment guide](shopping-demo.md). Then prepare a local work directory:
+## 1. Prerequisites and inputs
 
-```bash
-python3 scripts/aiperf/prepare-inputs.py /path/to/test.jsonl /path/to/benchmark-work \
-  --expected-sha256 YOUR_FROZEN_TEST_SHA256
-```
-
-This produces the original system message, unchanged question pool, and a checksum record. Do **not** commit the work directory or question file.
-
-## 2. Deploy the benchmark serving mode
-
-Build Switchyard from this repo's current `patches/batching/algorithm.rs` overlay, following the [deployment guide](shopping-demo.md). The compiled binary must include `prefill_prompt_without_aiperf_rid`; editing only AIPerf cannot hide tags from the encoder. For the Switchyard setup, make these two changes in **both** local DGD manifest copies before applying them:
-
-```yaml
-- name: SWITCHYARD_PREFIX_CACHE_MODE
-  value: enabled
-- name: SWITCHYARD_STRIP_AIPERF_RID_FOR_ROUTING
-  value: "1"
-```
-
-The first setting launches each `dynamo.vllm` worker with `--enable-prefix-caching`. The second affects only the router encoder. The committed DGD manifests keep both benchmark options off by default. Confirm both routers are ready and receiving traffic. For model-only baselines, deploy two workers of the same model on the same full instance, with prefix caching enabled; they do not need a router. **Run one configuration at a time**, and use the same model revisions and inference settings. This repository does not provision AWS resources or model-only DGDs automatically.
-
-## 3. Run AIPerf on a dedicated CPU load generator
-
-Use AIPerf **0.13.0**. The optional [load-generator Pod](../manifests/aiperf/loadgen.yaml) expects a prepared `workload=aiperf` CPU node. Stage the contents of the prepared work directory and `scripts/aiperf/` into `/work` on that Pod. Before high-rate runs, execute `python3 /work/patch-export.py`; its version-guarded changes prevent duplicate/slow artifact export, without changing requests or metrics.
-
-For each offered rate, run **one** point (example URLs are cluster-local):
+Use the Dynamo operator and runtime image `nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.0`, the pinned model snapshots and patched Switchyard runtime from the [deployment guide](shopping-demo.md), a `dynamo` namespace, and `hf-token-secret`. Provide one node labeled `workload=model-serving` with two allocatable RTX PRO 6000 GPUs and one `c7i.2xlarge` node labeled `workload=aiperf`. The optional `benchmark=aiperf:NoSchedule` taint is tolerated by the load-generator Pod. Verify instance types, GPU allocation, and readiness before each arm; the repo does not create or pay for EKS nodegroups.
 
 ```bash
-bash /work/run-point.sh capable_only capable http://capable-frontend:8000 96 /work
-bash /work/run-point.sh switchyard shopping http://switchyard-production-rr:4000 160 /work
-bash /work/run-point.sh e4b_only efficient http://efficient-frontend:8000 768 /work
+python3 scripts/aiperf/check-nodes.py --context YOUR_KUBE_CONTEXT
 ```
 
-These are examples of previously tested *passing* points, not a substitute for testing the SLO boundary. The script fixes: 500 questions sampled randomly with replacement; `--cache-bust first_turn_prefix`; temperature 0, seed 42, max 16 tokens, thinking disabled; 60-second warmup; 300-second measurement; 1-second good-request cutoff; and raw export. It refuses to overwrite an existing role/rate directory. Run additional offered rates until the next valid point fails the criterion below. Never count an incomplete or cancelled point as a result.
-
-## 4. Validate each point and report only scoped results
+From the repo root, create an ignored local work directory and verify the exact input hash:
 
 ```bash
-python3 /work/validate-point.py /work switchyard 160
+python3 scripts/aiperf/prepare-inputs.py benchmark/inputs/test.jsonl output/benchmark-work \
+  --expected-sha256 07882e772a3aa492e97747aa88a83a61ca5975810842e88539ee9b07e2427c64
+shasum -a 256 benchmark/inputs/prefill_router.pt
 ```
 
-The validator checks completed/non-cancelled export, full measurement duration, 500-question coverage, unique request IDs, unchanged prompts/decoding, actual issued records, and at most **32 cached shared-prefix tokens** per observed response. Check pod restarts, load-generator memory events, and both router replicas' traffic separately. An SLO failure is a valid capacity result; an incomplete export or operational failure is not.
+The checkpoint hash must be `5c3e0704368f248a469d6762252bb3a1257bfd7016c885417de1707488247bdf`. Stage **this** checkpoint in the builder Pod using the deployment guide. Do not use another local checkpoint or question split.
 
-A point passes when at least **95%** of requests meet the **1-second** latency cutoff. For each configuration, select the highest tested passing goodput and compute estimated G7e cost per 1,000 compliant requests as `G7e hourly price × 1000 / (good RPS × 3600)`. Because each setup uses the same full instance, relative cost per compliant request is the inverse goodput ratio. This excludes the CPU load generator, EKS overhead, storage, network, and idle time; it is **not** a measured AWS bill or production cost claim. Keep the clean-prompt accuracy result visibly separate from the tagged performance result.
+## 2. Measure clean-prompt accuracy
 
-The recorded comparison behind the current demo selected 95.56 good RPS for 31B-only and 159.63 for Switchyard, a **1.67× throughput ratio** and approximately **40% lower estimated G7e instance cost per compliant request**. On a separate clean 500-question accuracy pass, Switchyard scored 93.6% and 31B-only 95.2%. Those figures are examples to reproduce, not guaranteed outcomes on another cluster.
+Deploy the standard Switchyard DGDs and Service from the deployment guide (the defaults have prefix caching disabled). They expose both direct Dynamo frontends and the router Service on one G7e instance. In three separate terminals, keep these port-forwards running:
+
+```bash
+kubectl -n dynamo port-forward svc/efficient-frontend 18000:8000
+kubectl -n dynamo port-forward svc/capable-frontend 18001:8000
+kubectl -n dynamo port-forward svc/switchyard-production-rr 14000:4000
+```
+
+Then run each of the 500 questions once through E4B, 31B, and Switchyard with the same system prompt and decoding settings. This command verifies the frozen policy and input hashes and refuses to overwrite results:
+
+```bash
+python3 scripts/shopping-mmlu/tiered-heldout-live.py \
+  --input benchmark/inputs/test.jsonl \
+  --router-dir benchmark/inputs \
+  --checkpoint benchmark/inputs/prefill_router.pt \
+  --policy benchmark/inputs/policy.json \
+  --costs configs/prefill-router/shopping-costs-token-proxy.json \
+  --output-rows output/clean-accuracy-rows.jsonl \
+  --output-report output/clean-accuracy-report.json
+```
+
+Install the Python `openai` package if it is not already available. Accuracy uses **clean** questions; do not substitute the tagged AIPerf responses or claim that accuracy and cost came from one run.
+
+## 3. Prepare AIPerf on the CPU node
+
+Stop the clean-accuracy port-forwards and remove the standard Switchyard DGDs and Service before deploying a baseline. Apply the [load-generator Pod](../manifests/aiperf/loadgen.yaml), wait for `/work/installed`, and copy the prepared input files, runner scripts, and protocol into it. The Pod installs AIPerf **0.13.0** and Python 3.12.
+
+```bash
+kubectl -n dynamo delete dgd efficient capable
+kubectl -n dynamo delete service switchyard-production-rr
+kubectl apply -f manifests/aiperf/loadgen.yaml
+kubectl -n dynamo wait --for=condition=Ready pod/aiperf-loadgen --timeout=10m
+until kubectl -n dynamo exec aiperf-loadgen -- test -f /work/installed; do sleep 5; done
+kubectl -n dynamo cp output/benchmark-work/. aiperf-loadgen:/work
+kubectl -n dynamo cp scripts/aiperf aiperf-loadgen:/work/scripts-aiperf
+kubectl -n dynamo cp benchmark/protocol.json aiperf-loadgen:/work/protocol.json
+kubectl -n dynamo exec aiperf-loadgen -- python3 /work/scripts-aiperf/patch-export.py
+```
+
+The version-guarded export patch avoids duplicate/slow artifact export without changing requests or metrics. Confirm `aiperf profile --help` offers `--cache-bust first_turn_prefix` before running. Keep only **one AIPerf process** alive. Preserve incomplete attempts separately; the runner refuses to overwrite an existing rate directory.
+
+## 4. Run the three topologies, one at a time
+
+For each arm, wait until **two worker Pods** are Ready on the same G7e node and verify the expected frontend is reachable from the load-generator Pod. Do not run two arms concurrently. `run-sweep.sh` reads the exact rates from `protocol.json`, resumes only valid existing points, and stops after the first valid SLO failure. Each rate is one 60-second warmup plus 300-second measurement, with 500 questions sampled randomly with replacement, fixed decoding, unique request IDs, and a 1-second goodput cutoff. A valid SLO failure is a result; an incomplete or cancelled export is not.
+
+E4B-only (two E4B workers):
+
+```bash
+kubectl apply -f manifests/benchmark/dgd-e4b-only.yaml
+kubectl -n dynamo wait --for=condition=Ready pod -l benchmark-role=e4b-only --timeout=20m
+kubectl -n dynamo exec aiperf-loadgen -- bash /work/scripts-aiperf/run-sweep.sh \
+  e4b_only efficient http://efficient-frontend:8000 /work /work/protocol.json
+kubectl -n dynamo delete dgd efficient
+kubectl -n dynamo wait --for=delete pod -l benchmark-role=e4b-only --timeout=10m
+```
+
+31B-only (two 31B workers):
+
+```bash
+kubectl apply -f manifests/benchmark/dgd-31b-only.yaml
+kubectl -n dynamo wait --for=condition=Ready pod -l benchmark-role=capable-only --timeout=20m
+kubectl -n dynamo exec aiperf-loadgen -- bash /work/scripts-aiperf/run-sweep.sh \
+  capable_only capable http://capable-frontend:8000 /work /work/protocol.json
+kubectl -n dynamo delete dgd capable
+kubectl -n dynamo wait --for=delete pod -l benchmark-role=capable-only --timeout=10m
+```
+
+Switchyard (E4B + 31B, with two colocated encoders):
+
+```bash
+kubectl kustomize --load-restrictor=LoadRestrictionsNone \
+  manifests/benchmark/switchyard-cache-bust | kubectl apply -f -
+kubectl -n dynamo wait --for=condition=Ready pod -l app=switchyard-production-rr --timeout=20m
+kubectl -n dynamo get endpointslices -l kubernetes.io/service-name=switchyard-production-rr
+kubectl -n dynamo exec aiperf-loadgen -- bash /work/scripts-aiperf/run-sweep.sh \
+  switchyard shopping http://switchyard-production-rr:4000 /work /work/protocol.json
+```
+
+The Kustomize overlay changes **both** workers to ordinary prefix caching and removes request IDs only from the router encoder copy. Check router logs to confirm both replicas received traffic; the Service balances TCP connections, not individual requests. `kubectl kustomize` needs the shown load-restrictor setting because this small overlay references manifests in a sibling directory.
+
+## 5. Copy results and calculate the comparison
+
+Copy the new artifacts back to the prepared local work directory, then validate **every** planned point and calculate the selected highest-tested passing goodput and G7e instance cost:
+
+```bash
+kubectl -n dynamo cp aiperf-loadgen:/work/artifacts output/benchmark-work/artifacts
+python3 scripts/aiperf/summarize-comparison.py output/benchmark-work \
+  --output output/benchmark-report.json
+```
+
+`protocol.json` freezes the historical `$14.40172/hour` G7e rate used for the reported cost estimate; replace it and record the source if using a different rate. Cost per 1,000 compliant requests is `hourly G7e cost × 1,000 / (good RPS × 3,600)`. The report explicitly identifies passing and failing tested points and whether a higher tested failure bounds each arm. The E4B-only sweep ended at 768 RPS without a failure, so do not call that an exact limit. One trial per rate does not establish a stable production capacity boundary; repeat near-boundary points if precision matters.
+
+This estimate excludes the CPU load generator, EKS control plane, storage, network, and idle time. It is **not** an AWS bill or evidence of savings on production traffic. After backing up artifacts, delete the benchmark DGDs/Service and scale down both nodegroups according to your organization's approved procedure; verify EC2 instances are terminated.
+
+To audit the original quoted points without a cluster, follow the [evidence extraction steps](../benchmark/evidence/README.md). The published evidence includes the selected 96/160 RPS points and the next tested 112/192 RPS failures, but not all intermediate-rate raw exports.

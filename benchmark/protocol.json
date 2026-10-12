@@ -1,0 +1,17 @@
+{
+  "version": "shopping-mmlu-cache-bust-v1",
+  "question_count": 500,
+  "test_sha256": "07882e772a3aa492e97747aa88a83a61ca5975810842e88539ee9b07e2427c64",
+  "checkpoint_sha256": "5c3e0704368f248a469d6762252bb3a1257bfd7016c885417de1707488247bdf",
+  "g7e_hourly_usd_for_frozen_comparison": 14.40172,
+  "warmup_seconds": 60,
+  "measurement_seconds": 300,
+  "slo_ms": 1000,
+  "required_attainment": 0.95,
+  "rates": {
+    "e4b_only": [128, 256, 384, 512, 640, 768],
+    "capable_only": [64, 96, 112],
+    "switchyard": [64, 96, 128, 160, 192]
+  },
+  "notes": "Test one topology at a time on the same full g7e.12xlarge. These are the rates needed to reproduce the selected passing points and first observed failures; E4B-only was not bounded by a failing point. The Switchyard 160 RPS result and capable-only 96 RPS reference were collected on different days."
+}

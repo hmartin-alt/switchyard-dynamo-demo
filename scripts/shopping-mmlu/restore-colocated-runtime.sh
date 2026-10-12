@@ -3,7 +3,7 @@
 set -euo pipefail
 cd /runtime
 apt-get update
-apt-get install -y build-essential pkg-config libssl-dev curl git patch
+apt-get install -y build-essential pkg-config libssl-dev curl git
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/install-rust.sh
 sh /tmp/install-rust.sh -y --profile minimal --default-toolchain 1.96.1
 export PATH=/home/dynamo/.cargo/bin:/root/.cargo/bin:$PATH
@@ -15,8 +15,10 @@ cp patches/batching/microbatch.rs switchyard-src/crates/prefill-router/src/micro
 cp patches/batching/transformers_forward.py switchyard-src/crates/prefill-router/python/transformers_forward.py
 cp patches/batching/switchyard_batch.py python/switchyard_batch.py
 cd /runtime/llm-router-src
-patch --forward -p1 < /runtime/patches/prefill-inference-overhead.patch
-patch --forward -p1 < /runtime/patches/prefill-unused-layers.patch
+git apply --unidiff-zero --check /runtime/patches/prefill-inference-overhead.patch
+git apply --unidiff-zero /runtime/patches/prefill-inference-overhead.patch
+git apply --unidiff-zero --check /runtime/patches/prefill-unused-layers.patch
+git apply --unidiff-zero /runtime/patches/prefill-unused-layers.patch
 cd /runtime/switchyard-src
 PYO3_PYTHON=python3 cargo build --release --locked -p switchyard-server --features prefill-router
 cp target/release/switchyard-server /runtime/switchyard-server-profiled

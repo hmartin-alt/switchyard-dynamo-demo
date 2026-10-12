@@ -9,13 +9,13 @@ This setup uses local changes for toolkit-checkpoint loading, tolerance selectio
 - `prefill-unused-layers.patch` — skip unused encoder layers.
 - [Batching overlays](batching/README.md) — score multiple requests together.
 
-The Switchyard integration patch targets commit `a601a9a3f9db149a1ad430fa43b1463a170c8a82`. Keep this source version when rebuilding; patches may not apply to another version.
+The Switchyard integration patch targets commit `a601a9a3f9db149a1ad430fa43b1463a170c8a82`. The toolkit patches target [`NVIDIA-AI-Blueprints/llm-router`](https://github.com/NVIDIA-AI-Blueprints/llm-router) branch `v3` at commit `8a9d3509fbde879d9795258081bab9553b458e04`. Keep these source versions when rebuilding; patches may not apply to another version.
 
 ## Build
 
-1. Place a **fresh, unpatched** matching Switchyard checkout at `/runtime/switchyard-src`, compatible toolkit source at `/runtime/llm-router-src`, and this patch directory at `/runtime/patches` in the builder pod.
+1. Place a **fresh, unpatched** matching Switchyard checkout at `/runtime/switchyard-src`, the pinned toolkit repo's **`src/` directory (not its repository root)** at `/runtime/llm-router-src`, and this patch directory at `/runtime/patches` in the builder pod.
 2. Place `scripts/shopping-mmlu/restore-colocated-runtime.sh` at `/runtime/restore-colocated-runtime.sh` and run it **once**. It checks and applies the Switchyard integration patch, applies toolkit optimizations and batching overlays, installs build dependencies, and builds `switchyard-server-profiled`.
 
-The script expects prepared source trees; it does not download them. Use a fresh toolkit copy when applying its patches. The serving Python environment must include the model-router toolkit and its dependencies. The source and checkpoint are not distributed by this repository.
+The script expects prepared source trees; it does not download them. It applies the toolkit patches with `git apply --unidiff-zero`, which is required by their zero-context hunks. Use a fresh toolkit copy when applying its patches. The serving Python environment must include the model-router toolkit and its dependencies. The source and checkpoint are not distributed by this repository.
 
 See the [deployment guide](../docs/shopping-demo.md) for the runtime mounts and launcher.
