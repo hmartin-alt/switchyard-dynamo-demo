@@ -2,10 +2,39 @@
 
 A trained [Switchyard](https://github.com/NVIDIA-NeMo/Switchyard) prefill router picks, for each Shopping MMLU question, between Gemma 4 E4B (`efficient`) and Gemma 4 31B (`capable`). A small Qwen3.5-0.8B encoder reads the question once and predicts how likely each model is to answer it correctly. Both models run on [Dynamo](https://github.com/ai-dynamo/dynamo) on a single two-GPU `g7e.12xlarge`: one GPU holds a model worker plus a copy of the router, and a Kubernetes Service spreads traffic across the two router copies.
 
+> **Status: experimental.** This is a working demo and benchmark, not a production path. It runs a pinned Switchyard build with local patches for toolkit-checkpoint compatibility, tolerance routing, and encoder performance, plus patches to the model-router toolkit. The patches are specific to this demo and have not been proposed upstream. [PATCHES.md](PATCHES.md) lists each one, what it does, and what it would take to upstream.
+
 | GPU | Dynamo deployment | Processes |
 | --- | --- | --- |
 | 1 | `efficient` | Gemma 4 E4B worker + router |
 | 2 | `capable` | Gemma 4 31B worker + router |
+
+```mermaid
+flowchart LR
+  C[Client] --> S["Kubernetes Service<br/>switchyard-production-rr :4000"]
+  S -->|"connections spread<br/>across both pods"| P1
+  S --> P2
+  subgraph N["One g7e.12xlarge node"]
+    subgraph P1["Pod: efficient (GPU 1)"]
+      R1["Switchyard router<br/>+ Qwen3.5-0.8B encoder"]
+      W1["Gemma 4 E4B<br/>(vLLM worker)"]
+    end
+    subgraph P2["Pod: capable (GPU 2)"]
+      R2["Switchyard router<br/>+ Qwen3.5-0.8B encoder"]
+      W2["Gemma 4 31B<br/>(vLLM worker)"]
+    end
+  end
+  F1["Dynamo frontend<br/>efficient :8000"]
+  F2["Dynamo frontend<br/>capable :8000"]
+  R1 -->|"E4B chosen"| F1
+  R2 -->|"E4B chosen"| F1
+  R1 -->|"31B chosen"| F2
+  R2 -->|"31B chosen"| F2
+  F1 --> W1
+  F2 --> W2
+```
+
+Either router copy can receive a request. It scores the question once, then sends it to the frontend of whichever model it picks, so a request that lands on the `efficient` pod may still be answered by the 31B worker.
 
 ## Results
 
@@ -32,6 +61,8 @@ That is 1.67x the throughput, or about 40% lower instance cost per compliant req
 | `scripts/aiperf/` | Input prep, node check, sweep runner, point validator, summarizer |
 | `patches/` | Switchyard and toolkit patches, plus the batching overlays |
 | `benchmark/` | Frozen test set, router checkpoint, policy, rate schedule, and the raw AIPerf results behind the table above |
+| `PATCHES.md` | Inventory of every local patch and overlay, with upstream tracking notes |
+| `THIRD_PARTY_NOTICES.md`, `licenses/` | Attribution for upstream code and data used here |
 
 ## Prerequisites
 
@@ -202,6 +233,7 @@ python3 scripts/aiperf/summarize-comparison.py /tmp/work --protocol benchmark/ev
 - **Accuracy.** The 1.6-point gap has a paired bootstrap 95% interval of about −3.6 to +0.4 points, so it is not distinguishable from zero. On the tagged prompts used in the load test, Switchyard scores 92.5% and 31B-only 95.5%.
 - **Throughput.** Each number is the highest rate tested that passed, from a coarse rate grid with one run per point. 31B-only passes at 96 and fails at 112; Switchyard passes at 160 and fails at 192. Taking those bounds at face value, the true cost reduction could be anywhere from roughly 30% to 50%. The two setups were measured on different days.
 - **Cost.** G7e instance list price only. It leaves out the load generator, EKS, storage, network and idle time, and it is not an AWS bill. The saving assumes the 31B-only fleet is sized to the load; at low traffic you would see spare capacity, not a smaller bill.
+- **Batching guard.** The router scores concurrent requests in batches, which can nudge scores slightly on the GPU. To keep batching from changing a route, any question scoring within `SWITCHYARD_PREFILL_NUMERIC_GUARD` of the routing cutoff is rescored alone. The launchers set it to `0.0024222002754211427`, and the benchmark numbers above were measured with that value. A wider guard protects more borderline questions at the cost of rescoring more requests; `0.04` is a reasonable conservative setting, above the largest batched-versus-single score difference we saw, but it was not benchmarked for throughput. To change it, edit the `SWITCHYARD_PREFILL_NUMERIC_GUARD` line in both `manifests/router/start-efficient-router.sh` and `start-capable-router.sh`, copy them to the node as in step 1, and restart the worker Pods. [PATCHES.md](PATCHES.md) has the details.
 - **Cache mode.** The benchmark runs with prefix caching on and a unique tag per request. The default manifests run with it off.
 - **Training.** The checkpoint is included, but the training labels and features are not, so this repo cannot recreate it. To train a router on your own data, see the [llm-router training guide](https://github.com/NVIDIA-AI-Blueprints/llm-router/blob/v3/docs/guide-training-and-evaluation.md); the [Switchyard reference](https://nvidia-nemo.github.io/Switchyard/reference/toml_schema/#prefill_router) covers checkpoint configuration.
 - **Cluster.** Provisioning EKS and node groups, model weights and credentials are not included.
