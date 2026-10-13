@@ -46,7 +46,7 @@ The benchmark evidence committed in `benchmark/evidence/` compares whole setups 
 
 ## 3. Microbatching
 
-- **Target:** Switchyard, files `patches/batching/algorithm.rs`, `microbatch.rs` (new), `transformers_forward.py`, plus `switchyard_batch.py` on the Python path. Tests in `algorithm-tests.rs`.
+- **Target:** Switchyard, files `patches/batching/algorithm.rs`, `microbatch.rs` (new), `transformers_forward.py`, plus `switchyard_batch.py` on the Python path. Tests are in `microbatch.rs` and `algorithm-tests.rs` (see "Existing tests here").
 - **Problem:** with one request scored at a time, encoder work is serialized and the router becomes the throughput limit.
 - **Workaround:** opt in with `SWITCHYARD_PREFILL_MICROBATCH=1`. A bounded queue (128 jobs) feeds one worker that collects up to `SWITCHYARD_PREFILL_BATCH_SIZE` prompts (default 16, max 64) for up to `SWITCHYARD_PREFILL_BATCH_WAIT_MS` (default 2, max 100) and scores them together. `switchyard_batch.py` reaches into private toolkit fields (`_extractor`, `_ckpt`, `_trunk_nets`, `_device`, `_needed_layers`, `_needed_pooling_modes`), sets the tokenizer's `padding_side` to right, and temporarily wraps `_forward_for_features` to time the encoder. Because batch shape changes BF16 rounding, any request whose score is within `SWITCHYARD_PREFILL_NUMERIC_GUARD` of the routing threshold is rescored one at a time. The server refuses to start if `SWITCHYARD_PREFILL_TOLERANCE` differs from the route's tolerance. Queue wait, batch collection and prediction times are logged, not exported as metrics.
 - **Changes:** performance, by intent. A request near the threshold could still route differently if the guard window is too narrow.
@@ -54,7 +54,7 @@ The benchmark evidence committed in `benchmark/evidence/` compares whole setups 
 - **Parity result on the final checkpoint (2026-10-12, g7e.12xlarge, RTX PRO 6000 Blackwell, torch 2.11.0+cu130):** the launchers set the guard to `0.0024222002754211427`. That number is not from upstream; it came from a 2026-10-05 parity run on an earlier router (checkpoint `abfed7c2…`, tolerance 0.0446, 75 prompts) and was carried over unchanged. A one-off parity script (not kept in this repo) run on the 500 held-out questions (tolerance 0.176, batch sizes 2, 4, 8 and 16, three shuffles each) found that batching changes routes: 40 flips across 12 runs (2 to 6 per run), from only 8 distinct questions, each within 0.013 of the cutoff. With the current guard 25 of those flips remained, so it is too narrow. Single-request scoring was repeatable (difference 0.0), and batched scores differed from it by up to 0.039. A guard of 0.0125, picked from the first three shuffles, left 2 flips on six fresh shuffles (they needed 0.0175). A guard of 0.04 left no flips in 24 runs (6 shuffles × 4 batch sizes) and rescored about 8% of requests, against 0.2% to 0.8% at the current guard. On the held-out set the 8 flippable questions have the same correctness under both models (7 right for both, 1 wrong for both), so no answer changes there. The effect is limited to near-ties, but the launchers' guard does not do what it is meant to do. Widening it is a launcher setting, not a code change; it has not been applied here, and the 24-run result above is not a benchmark of the widened setting. The reports are not committed.
 - **Production version:** a public batched-scoring API in the toolkit; in Switchyard, batch size, wait time and queue depth as route config, with queue-depth and encoder-latency metrics. Padding handling belongs inside the toolkit.
 - **Tests for upstreaming:** scalar and batched routing agree across batch sizes, padding lengths and near-threshold cases; queue-full behavior; cancelled requests are dropped; shutdown; metrics emitted.
-- **Existing tests here:** three Python tests for the guard (`tests/test_prefill_batch.py`). There is no Rust test for the queue, batching or tolerance.
+- **Existing tests here:** three Python tests for the guard (`tests/test_prefill_batch.py`). `microbatch.rs` also contains Rust tests for batching, request mapping, error recovery and flushing an incomplete batch, and `algorithm-tests.rs` holds tolerance and routing tests. Neither is run by the documented demo build: `restore-colocated-runtime.sh` copies `microbatch.rs` (so its tests compile in only under `cargo test`, which the script does not run) but does not copy `algorithm-tests.rs` into the Switchyard test tree. Treat both as unverified until run upstream.
 
 ## 4. Skip unneeded logits and per-request cache flush
 
@@ -78,7 +78,7 @@ The benchmark evidence committed in `benchmark/evidence/` compares whole setups 
 
 ## 6. Strip the AIPerf request ID before routing
 
-- **Target:** Switchyard `algorithm.rs` (batching overlay), with a Rust unit test in `algorithm-tests.rs`.
+- **Target:** Switchyard `algorithm.rs` (batching overlay), with a Rust unit test in `algorithm-tests.rs` (not copied or run by the demo build).
 - **Problem:** AIPerf's cache-bust mode prepends `[rid:<12 hex>]\n\n` to each user message. The router should classify the clean question while the model still receives the tagged one.
 - **Workaround:** with `SWITCHYARD_STRIP_AIPERF_RID_FOR_ROUTING=1`, the router removes that exact prefix from its own copy of the prompt. The request sent to Dynamo is unchanged.
 - **Changes:** the routing input, for benchmarking only. Off by default.
@@ -110,12 +110,12 @@ The tolerance appears in two places, `colocated-routes.toml` and the launcher en
 
 ## Proposed upstream tracking issues
 
-1. Switchyard: support model-router toolkit prefill checkpoints (items 1, 6).
+1. Switchyard: support model-router toolkit prefill checkpoints (item 1).
 2. Switchyard: configurable cost-aware tolerance routing with explicit target priority (item 2).
-3. Switchyard: bounded prefill microbatching with metrics and parity tests (items 3, 6).
+3. Switchyard: bounded prefill microbatching with metrics and parity tests (item 3).
 4. Toolkit: avoid unused logits and per-request cache flushes (item 4).
 5. Toolkit: supported early-exit feature API (item 5).
-6. Toolkit: public batched-scoring API (items 1, 3).
+6. Toolkit: public batched-scoring API (items 1 and 3).
 7. AIPerf: large raw-export optimization, after checking the current release (item 7).
 
 These should go upstream as separate issues and PRs. Checkpoint compatibility, routing policy, batching and inference optimization are independent changes.
