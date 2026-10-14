@@ -110,12 +110,12 @@ The tolerance appears in two places, `colocated-routes.toml` and the launcher en
 
 ## Proposed upstream tracking issues
 
-1. Switchyard: support model-router toolkit prefill checkpoints (item 1).
-2. Switchyard: configurable cost-aware tolerance routing with explicit target priority (item 2).
-3. Switchyard: bounded prefill microbatching with metrics and parity tests (item 3).
-4. Toolkit: avoid unused logits and per-request cache flushes (item 4).
-5. Toolkit: supported early-exit feature API (item 5).
-6. Toolkit: public batched-scoring API (items 1 and 3).
-7. AIPerf: large raw-export optimization, after checking the current release (item 7).
+- Checkpoint compatibility: patch item 1
+- Tolerance routing: item 2
+- Microbatching: item 3
+- Inference overhead: item 4
+- Early exit: item 5
+- Public batched-scoring API: items 1 and 3
+- AIPerf export: item 7
 
 These should go upstream as separate issues and PRs. Checkpoint compatibility, routing policy, batching and inference optimization are independent changes.
